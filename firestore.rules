@@ -1,0 +1,109 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 1. Master Gate catch-all deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helper Functions ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Entity Validations ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'role']) &&
+             data.uid == request.auth.uid &&
+             data.displayName is string && data.displayName.size() <= 200 &&
+             data.email is string && data.email.size() <= 200 &&
+             data.role in ['GP', 'Specialist', 'Admin'];
+    }
+
+    function isValidReferral(data) {
+      return data.keys().hasAll(['patientName', 'urgency', 'category', 'fromDoctorId', 'toDoctorId', 'status', 'createdAt']) &&
+             data.patientName is string && data.patientName.size() <= 200 &&
+             data.urgency in ['Routine', 'Urgent', 'Emergency'] &&
+             data.category in ['Implant Clearance', 'Maxillofacial Trauma', 'Dental-Systemic Issues', 'Prosthodontic Rehabilitation'] &&
+             data.status in ['Submitted', 'Scheduled', 'Treatment Started', 'Completed'] &&
+             data.fromDoctorId is string && data.fromDoctorId.size() <= 128 &&
+             data.toDoctorId is string && data.toDoctorId.size() <= 128;
+    }
+
+    function isValidNotification(data) {
+       return data.keys().hasAll(['userId', 'message', 'type', 'read', 'createdAt']) &&
+              data.userId is string &&
+              data.message is string && data.message.size() <= 1000 &&
+              data.type in ['NewReferral', 'StatusUpdate', 'DocumentShared', 'FeedbackReceived'] &&
+              data.read is bool;
+    }
+
+    // --- Match Rules ---
+
+    // User Profiles
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming()) && 
+                    incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'hospital', 'licenseNumber', 'specialty', 'updatedAt']);
+    }
+
+    // Referrals
+    match /referrals/{referralId} {
+      // Secure List / Query Enforcer
+      allow list: if isSignedIn() && (resource.data.fromDoctorId == request.auth.uid || resource.data.toDoctorId == request.auth.uid);
+      
+      allow get: if isSignedIn() && (existing().fromDoctorId == request.auth.uid || existing().toDoctorId == request.auth.uid);
+      
+      allow create: if isSignedIn() && 
+                    incoming().fromDoctorId == request.auth.uid && 
+                    isValidReferral(incoming()) &&
+                    incoming().createdAt == request.time;
+      
+      allow update: if isSignedIn() && 
+                    (existing().fromDoctorId == request.auth.uid || existing().toDoctorId == request.auth.uid) &&
+                    isValidReferral(incoming()) &&
+                    (
+                      // Action: Status Update (Both doctors can update status)
+                      incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) ||
+                      // Action: General Edit (Only sender can edit details)
+                      (existing().fromDoctorId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['patientName', 'patientAge', 'condition', 'reason', 'urgency', 'category', 'notes', 'toDoctorId', 'updatedAt', 'aiSummary', 'aiUrgencyScore']))
+                    );
+      
+      // Sub-collections: Documents
+      match /documents/{docId} {
+        function getReferral() {
+          return get(/databases/$(database)/documents/referrals/$(referralId)).data;
+        }
+        
+        allow read: if isSignedIn() && (getReferral().fromDoctorId == request.auth.uid || getReferral().toDoctorId == request.auth.uid);
+        
+        allow create: if isSignedIn() && 
+                      (getReferral().fromDoctorId == request.auth.uid || getReferral().toDoctorId == request.auth.uid) &&
+                      incoming().uploadedBy == request.auth.uid;
+      }
+    }
+
+    // Notifications
+    match /users/{userId}/notifications/{notifId} {
+      allow read: if isOwner(userId);
+      // Allow any doctor to notify another doctor during referral process
+      allow create: if isSignedIn() && isValidNotification(incoming()) && incoming().createdAt == request.time;
+      allow update: if isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+    }
+  }
+}

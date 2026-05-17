@@ -1,0 +1,88 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Doctor profile and role information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique user ID from Auth" },
+        "displayName": { "type": "string", "description": "Doctor's full name" },
+        "email": { "type": "string", "description": "Professional email" },
+        "role": { "type": "string", "enum": ["GP", "Specialist", "Admin"], "description": "Healthcare role" },
+        "specialty": { "type": "string", "description": "Area of expertise (e.g., ENT, Plastic Surgery, Dental)" },
+        "hospital": { "type": "string", "description": "Associated hospital or clinic" },
+        "licenseNumber": { "type": "string", "description": "Medical license identifier" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "email", "role"]
+    },
+    "Referral": {
+      "title": "Patient Referral",
+      "description": "Information about a patient referral between doctors",
+      "type": "object",
+      "properties": {
+        "patientName": { "type": "string" },
+        "patientAge": { "type": "number" },
+        "condition": { "type": "string" },
+        "reason": { "type": "string" },
+        "urgency": { "type": "string", "enum": ["Routine", "Urgent", "Emergency"] },
+        "category": { "type": "string", "enum": ["Implant Clearance", "Maxillofacial Trauma", "Dental-Systemic Issues", "Prosthodontic Rehabilitation"] },
+        "notes": { "type": "string" },
+        "aiSummary": { "type": "string", "description": "Gemini-generated clinical summary" },
+        "aiUrgencyScore": { "type": "number", "description": "AI-calculated urgency rating 0-100" },
+        "status": { "type": "string", "enum": ["Submitted", "Scheduled", "Treatment Started", "Completed"] },
+        "fromDoctorId": { "type": "string", "description": "Referring doctor UID" },
+        "toDoctorId": { "type": "string", "description": "Specialist doctor UID" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["patientName", "urgency", "category", "fromDoctorId", "toDoctorId", "status"]
+    },
+    "Document": {
+      "title": "Medical Document",
+      "description": "Metadata for shared medical files (X-rays, reports)",
+      "type": "object",
+      "properties": {
+        "referralId": { "type": "string" },
+        "fileName": { "type": "string" },
+        "fileType": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "uploadedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["referralId", "fileName", "fileUrl", "uploadedBy"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Clinical notification for a doctor",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "referralId": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["NewReferral", "StatusUpdate", "DocumentShared", "FeedbackReceived"] },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "message", "type", "read"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "Global doctor profiles"
+    },
+    "referrals/{referralId}": {
+      "schema": "Referral",
+      "description": "Medical referrals"
+    },
+    "referrals/{referralId}/documents/{docId}": {
+      "schema": "Document",
+      "description": "Documents attached to a specific referral"
+    },
+    "users/{userId}/notifications/{notifId}": {
+      "schema": "Notification",
+      "description": "User-specific clinical notifications"
+    }
+  }
+}
